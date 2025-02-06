@@ -4,16 +4,16 @@ Input person shape: torch.Size([1, 7, 256, 192])
 Input clothing shape: torch.Size([1, 3, 256, 192])
 person.dtype: torch.float32
 clothing.dtype: torch.float32
-person min/max: 0.00/1.00
+person min/max: 0.00/255.00
 clothing min/max: 0.01/1.00
 
 Extracted person features shape: torch.Size([1, 512, 16, 12])
 Extracted clothing features shape: torch.Size([1, 512, 16, 12])
-person_features min/max: -203.43/172.35
+person_features min/max: -20276.72/10765.75
 clothing_features min/max: -216.25/142.00
 
 Correlation output shape: torch.Size([1, 192, 16, 12])
-correlation min/max: -0.19/0.53
+correlation min/max: -0.22/0.64
 
 Final theta shape: torch.Size([1, 50])
-theta min/max: -0.32/0.21
+theta min/max: -0.33/0.21

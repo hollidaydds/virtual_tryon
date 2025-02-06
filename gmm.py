@@ -51,17 +51,13 @@ class FeatureExtraction(nn.Module):
         self.model = nn.Sequential(*model)
         
     def forward(self, x):
-        print(f"\nFeature Extraction Forward Pass:")
-        print(f"Input shape: {x.shape}")
-        
         try:
             # Track intermediate shapes
             for i, layer in enumerate(self.model):
                 x = layer(x)
                 if isinstance(layer, (nn.Conv2d, nn.BatchNorm2d)):
-                    print(f"Layer {i} ({layer.__class__.__name__}) output shape: {x.shape}")
+                    pass  # Removed print statement
             
-            print(f"Final output shape: {x.shape}")
             return x
             
         except Exception as e:
@@ -193,55 +189,10 @@ class GMM(nn.Module):
             raise
 
 def load_gmm(model_path):
-    """Load a pre-trained GMM model"""
+    """Load the GMM model from a checkpoint file."""
     model = GMM(7)
-    print("\nLoading GMM model from:", model_path)
     state_dict = torch.load(model_path)
-    
-    # Compare keys
-    pretrained_keys = set(state_dict.keys())
-    model_keys = set(model.state_dict().keys())
-    
-    print("\nKeys analysis:")
-    missing_in_model = pretrained_keys - model_keys
-    missing_in_pretrained = model_keys - pretrained_keys
-    
-    if missing_in_model:
-        print("Keys in pre-trained but missing in model:")
-        for key in sorted(missing_in_model):
-            print(f"  {key}")
-    
-    if missing_in_pretrained:
-        print("\nKeys in model but missing in pre-trained:")
-        for key in sorted(missing_in_pretrained):
-            print(f"  {key}")
-    
-    # Check for shape mismatches
-    print("\nShape mismatches:")
-    common_keys = pretrained_keys.intersection(model_keys)
-    mismatches = []
-    for key in common_keys:
-        pretrained_shape = state_dict[key].shape
-        model_shape = model.state_dict()[key].shape
-        if pretrained_shape != model_shape:
-            mismatches.append((key, pretrained_shape, model_shape))
-    
-    if mismatches:
-        for key, pre_shape, mod_shape in sorted(mismatches):
-            print(f"  {key}:")
-            print(f"    Pre-trained: {pre_shape}")
-            print(f"    Model: {mod_shape}")
-    else:
-        print("  No shape mismatches found")
-    
-    # Load state dict
-    try:
-        model.load_state_dict(state_dict)
-        print("\nSuccessfully loaded state dict")
-    except Exception as e:
-        print("\nError loading state dict:", str(e))
-        raise
-    
+    model.load_state_dict(state_dict)
     model.eval()
     return model
 
@@ -267,59 +218,29 @@ def pose_points_to_heatmap(pose_points, h=256, w=192, sigma=6):
     
     return pose_map
 
-def prepare_person_representation(pose_points, body_mask, face_hair_mask):
+def prepare_person_representation(pose_points, torso_mask, face_hair_mask, height=256, width=192):
     """
-    Create a person representation for the GMM model.
-    Input:
-        pose_points: numpy array of pose keypoints
-        body_mask: binary mask of body
-        face_hair_mask: binary mask of face and hair
-    Output:
-        person_repr: tensor of shape (1, 7, H, W)
+    Prepare the person representation for the GMM model.
+    Args:
+        pose_points: List of pose keypoints
+        torso_mask: Binary mask for torso region
+        face_hair_mask: Binary mask for face and hair regions
+        height: Target height (default: 256)
+        width: Target width (default: 192)
+    Returns:
+        Tensor of shape (1, 7, height, width)
     """
-    # Get target size
-    h, w = body_mask.shape[:2]
-    
-    # Convert pose points to heatmap
-    heatmap = pose_points_to_heatmap(pose_points, h=h, w=w)
-    
-    # Ensure body_mask is 3D
-    if len(body_mask.shape) == 2:
-        body_mask = body_mask[..., np.newaxis]
-    
-    # Ensure face_hair_mask is the right shape
-    if len(face_hair_mask.shape) == 2:
-        face_hair_mask = face_hair_mask[..., np.newaxis]
-    elif face_hair_mask.shape[-1] != 3:
-        face_hair_mask = np.repeat(face_hair_mask[..., np.newaxis], 3, axis=-1)
-    
-    # Print shapes for debugging
-    print(f"\nShape check:")
-    print(f"heatmap shape: {heatmap.shape}")
-    print(f"body_mask shape: {body_mask.shape}")
-    print(f"face_hair_mask shape: {face_hair_mask.shape}")
+    # Create heatmap from pose points
+    heatmap = pose_points_to_heatmap(pose_points, torso_mask.shape[0], torso_mask.shape[1])
     
     # Stack inputs
-    person_repr = np.concatenate([
-        heatmap,  # 3 channels for pose heatmap
-        body_mask,  # 1 channel for body mask
-        face_hair_mask  # 3 channels for face/hair mask
-    ], axis=-1)
+    person_repr = np.concatenate([heatmap, torso_mask[..., np.newaxis], face_hair_mask], axis=2)
     
-    print(f"person_repr shape after concat: {person_repr.shape}")
+    # Convert to tensor format (B, C, H, W)
+    person_repr = torch.FloatTensor(person_repr).permute(2, 0, 1).unsqueeze(0)
     
-    # Convert to tensor and add batch dimension
-    person_repr = torch.FloatTensor(person_repr.transpose(2, 0, 1)).unsqueeze(0)
-    
-    print(f"person_repr shape after transpose: {person_repr.shape}")
-    
-    # Normalize to [0, 1] range
-    person_repr = person_repr / 255.0
-    
-    # Ensure final size is correct
-    person_repr = F.interpolate(person_repr, size=(256, 192), mode='bilinear', align_corners=False)
-    
-    print(f"Final person_repr shape: {person_repr.shape}")
+    # Resize to target size
+    person_repr = F.interpolate(person_repr, size=(height, width), mode='bilinear', align_corners=True)
     
     return person_repr
 

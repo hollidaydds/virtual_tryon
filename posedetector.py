@@ -52,25 +52,20 @@ class PoseDetector:
 
     def detect(self, frame):
         """Detect poses in the input frame"""
-        logger.debug("Starting pose detection")
+        logger.info("Starting pose detection")
         
         frameWidth = frame.shape[1]
         frameHeight = frame.shape[0]
-        logger.debug(f"Input frame size: {frameWidth}x{frameHeight}")
         
         # Prepare input blob
-        logger.debug("Creating blob from image")
         net_input = cv2.dnn.blobFromImage(frame, 1.0, (self.inWidth, self.inHeight),
                                        (127.5, 127.5, 127.5), swapRB=True, crop=False)
         
         # Set the prepared input
-        logger.debug("Setting network input")
         self.net.setInput(net_input)
         
         # Make forward pass
-        logger.debug("Running network forward pass")
         output = self.net.forward()
-        logger.debug(f"Network output shape: {output.shape}")
         
         H = output.shape[2]
         W = output.shape[3]
@@ -78,7 +73,6 @@ class PoseDetector:
         # Empty list to store the detected keypoints
         points = []
         
-        logger.debug("Processing keypoints")
         for i in range(len(self.BODY_PARTS)-1):  # Exclude background
             # Probability map of corresponding body part
             probMap = output[0, i, :, :]
@@ -92,12 +86,9 @@ class PoseDetector:
             
             if prob > self.threshold:
                 points.append((int(x), int(y)))
-                logger.debug(f"Found keypoint {list(self.BODY_PARTS.keys())[i]} at ({int(x)}, {int(y)}) with confidence {prob:.2f}")
             else:
                 points.append(None)
-                logger.debug(f"No keypoint found for {list(self.BODY_PARTS.keys())[i]} (confidence {prob:.2f} below threshold {self.threshold})")
         
-        logger.debug(f"Found {len([p for p in points if p is not None])} keypoints above threshold")
         return points
 
     def draw_landmarks(self, frame, points):
@@ -106,16 +97,13 @@ class PoseDetector:
             logger.warning("Cannot draw landmarks: frame or points is None")
             return frame
             
-        logger.debug("Drawing keypoints")
         # Draw points
         for i, p in enumerate(points):
             if p is not None:
                 cv2.circle(frame, p, 8, (0, 255, 255), thickness=-1, lineType=cv2.FILLED)
                 cv2.putText(frame, f"{list(self.BODY_PARTS.keys())[i]}", p,
                           cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, lineType=cv2.LINE_AA)
-                logger.debug(f"Drew keypoint {list(self.BODY_PARTS.keys())[i]} at {p}")
         
-        logger.debug("Drawing skeleton")
         # Draw skeleton
         for pair in self.POSE_PAIRS:
             partFrom = pair[0]
@@ -125,6 +113,5 @@ class PoseDetector:
             
             if points[idFrom] and points[idTo]:
                 cv2.line(frame, points[idFrom], points[idTo], (0, 255, 0), 3)
-                logger.debug(f"Drew connection from {partFrom} to {partTo}")
                 
         return frame
