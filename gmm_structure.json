@@ -1,0 +1,751 @@
+{
+  "extractionA.model.0.weight": {
+    "shape": [
+      64,
+      7,
+      4,
+      4
+    ],
+    "dtype": "torch.float32",
+    "num_params": 7168
+  },
+  "extractionA.model.0.bias": {
+    "shape": [
+      64
+    ],
+    "dtype": "torch.float32",
+    "num_params": 64
+  },
+  "extractionA.model.2.weight": {
+    "shape": [
+      64
+    ],
+    "dtype": "torch.float32",
+    "num_params": 64
+  },
+  "extractionA.model.2.bias": {
+    "shape": [
+      64
+    ],
+    "dtype": "torch.float32",
+    "num_params": 64
+  },
+  "extractionA.model.2.running_mean": {
+    "shape": [
+      64
+    ],
+    "dtype": "torch.float32",
+    "num_params": 64
+  },
+  "extractionA.model.2.running_var": {
+    "shape": [
+      64
+    ],
+    "dtype": "torch.float32",
+    "num_params": 64
+  },
+  "extractionA.model.2.num_batches_tracked": {
+    "shape": [],
+    "dtype": "torch.int64",
+    "num_params": 1
+  },
+  "extractionA.model.3.weight": {
+    "shape": [
+      128,
+      64,
+      4,
+      4
+    ],
+    "dtype": "torch.float32",
+    "num_params": 131072
+  },
+  "extractionA.model.3.bias": {
+    "shape": [
+      128
+    ],
+    "dtype": "torch.float32",
+    "num_params": 128
+  },
+  "extractionA.model.5.weight": {
+    "shape": [
+      128
+    ],
+    "dtype": "torch.float32",
+    "num_params": 128
+  },
+  "extractionA.model.5.bias": {
+    "shape": [
+      128
+    ],
+    "dtype": "torch.float32",
+    "num_params": 128
+  },
+  "extractionA.model.5.running_mean": {
+    "shape": [
+      128
+    ],
+    "dtype": "torch.float32",
+    "num_params": 128
+  },
+  "extractionA.model.5.running_var": {
+    "shape": [
+      128
+    ],
+    "dtype": "torch.float32",
+    "num_params": 128
+  },
+  "extractionA.model.5.num_batches_tracked": {
+    "shape": [],
+    "dtype": "torch.int64",
+    "num_params": 1
+  },
+  "extractionA.model.6.weight": {
+    "shape": [
+      256,
+      128,
+      4,
+      4
+    ],
+    "dtype": "torch.float32",
+    "num_params": 524288
+  },
+  "extractionA.model.6.bias": {
+    "shape": [
+      256
+    ],
+    "dtype": "torch.float32",
+    "num_params": 256
+  },
+  "extractionA.model.8.weight": {
+    "shape": [
+      256
+    ],
+    "dtype": "torch.float32",
+    "num_params": 256
+  },
+  "extractionA.model.8.bias": {
+    "shape": [
+      256
+    ],
+    "dtype": "torch.float32",
+    "num_params": 256
+  },
+  "extractionA.model.8.running_mean": {
+    "shape": [
+      256
+    ],
+    "dtype": "torch.float32",
+    "num_params": 256
+  },
+  "extractionA.model.8.running_var": {
+    "shape": [
+      256
+    ],
+    "dtype": "torch.float32",
+    "num_params": 256
+  },
+  "extractionA.model.8.num_batches_tracked": {
+    "shape": [],
+    "dtype": "torch.int64",
+    "num_params": 1
+  },
+  "extractionA.model.9.weight": {
+    "shape": [
+      512,
+      256,
+      4,
+      4
+    ],
+    "dtype": "torch.float32",
+    "num_params": 2097152
+  },
+  "extractionA.model.9.bias": {
+    "shape": [
+      512
+    ],
+    "dtype": "torch.float32",
+    "num_params": 512
+  },
+  "extractionA.model.11.weight": {
+    "shape": [
+      512
+    ],
+    "dtype": "torch.float32",
+    "num_params": 512
+  },
+  "extractionA.model.11.bias": {
+    "shape": [
+      512
+    ],
+    "dtype": "torch.float32",
+    "num_params": 512
+  },
+  "extractionA.model.11.running_mean": {
+    "shape": [
+      512
+    ],
+    "dtype": "torch.float32",
+    "num_params": 512
+  },
+  "extractionA.model.11.running_var": {
+    "shape": [
+      512
+    ],
+    "dtype": "torch.float32",
+    "num_params": 512
+  },
+  "extractionA.model.11.num_batches_tracked": {
+    "shape": [],
+    "dtype": "torch.int64",
+    "num_params": 1
+  },
+  "extractionA.model.12.weight": {
+    "shape": [
+      512,
+      512,
+      3,
+      3
+    ],
+    "dtype": "torch.float32",
+    "num_params": 2359296
+  },
+  "extractionA.model.12.bias": {
+    "shape": [
+      512
+    ],
+    "dtype": "torch.float32",
+    "num_params": 512
+  },
+  "extractionA.model.14.weight": {
+    "shape": [
+      512
+    ],
+    "dtype": "torch.float32",
+    "num_params": 512
+  },
+  "extractionA.model.14.bias": {
+    "shape": [
+      512
+    ],
+    "dtype": "torch.float32",
+    "num_params": 512
+  },
+  "extractionA.model.14.running_mean": {
+    "shape": [
+      512
+    ],
+    "dtype": "torch.float32",
+    "num_params": 512
+  },
+  "extractionA.model.14.running_var": {
+    "shape": [
+      512
+    ],
+    "dtype": "torch.float32",
+    "num_params": 512
+  },
+  "extractionA.model.14.num_batches_tracked": {
+    "shape": [],
+    "dtype": "torch.int64",
+    "num_params": 1
+  },
+  "extractionA.model.15.weight": {
+    "shape": [
+      512,
+      512,
+      3,
+      3
+    ],
+    "dtype": "torch.float32",
+    "num_params": 2359296
+  },
+  "extractionA.model.15.bias": {
+    "shape": [
+      512
+    ],
+    "dtype": "torch.float32",
+    "num_params": 512
+  },
+  "extractionB.model.0.weight": {
+    "shape": [
+      64,
+      3,
+      4,
+      4
+    ],
+    "dtype": "torch.float32",
+    "num_params": 3072
+  },
+  "extractionB.model.0.bias": {
+    "shape": [
+      64
+    ],
+    "dtype": "torch.float32",
+    "num_params": 64
+  },
+  "extractionB.model.2.weight": {
+    "shape": [
+      64
+    ],
+    "dtype": "torch.float32",
+    "num_params": 64
+  },
+  "extractionB.model.2.bias": {
+    "shape": [
+      64
+    ],
+    "dtype": "torch.float32",
+    "num_params": 64
+  },
+  "extractionB.model.2.running_mean": {
+    "shape": [
+      64
+    ],
+    "dtype": "torch.float32",
+    "num_params": 64
+  },
+  "extractionB.model.2.running_var": {
+    "shape": [
+      64
+    ],
+    "dtype": "torch.float32",
+    "num_params": 64
+  },
+  "extractionB.model.2.num_batches_tracked": {
+    "shape": [],
+    "dtype": "torch.int64",
+    "num_params": 1
+  },
+  "extractionB.model.3.weight": {
+    "shape": [
+      128,
+      64,
+      4,
+      4
+    ],
+    "dtype": "torch.float32",
+    "num_params": 131072
+  },
+  "extractionB.model.3.bias": {
+    "shape": [
+      128
+    ],
+    "dtype": "torch.float32",
+    "num_params": 128
+  },
+  "extractionB.model.5.weight": {
+    "shape": [
+      128
+    ],
+    "dtype": "torch.float32",
+    "num_params": 128
+  },
+  "extractionB.model.5.bias": {
+    "shape": [
+      128
+    ],
+    "dtype": "torch.float32",
+    "num_params": 128
+  },
+  "extractionB.model.5.running_mean": {
+    "shape": [
+      128
+    ],
+    "dtype": "torch.float32",
+    "num_params": 128
+  },
+  "extractionB.model.5.running_var": {
+    "shape": [
+      128
+    ],
+    "dtype": "torch.float32",
+    "num_params": 128
+  },
+  "extractionB.model.5.num_batches_tracked": {
+    "shape": [],
+    "dtype": "torch.int64",
+    "num_params": 1
+  },
+  "extractionB.model.6.weight": {
+    "shape": [
+      256,
+      128,
+      4,
+      4
+    ],
+    "dtype": "torch.float32",
+    "num_params": 524288
+  },
+  "extractionB.model.6.bias": {
+    "shape": [
+      256
+    ],
+    "dtype": "torch.float32",
+    "num_params": 256
+  },
+  "extractionB.model.8.weight": {
+    "shape": [
+      256
+    ],
+    "dtype": "torch.float32",
+    "num_params": 256
+  },
+  "extractionB.model.8.bias": {
+    "shape": [
+      256
+    ],
+    "dtype": "torch.float32",
+    "num_params": 256
+  },
+  "extractionB.model.8.running_mean": {
+    "shape": [
+      256
+    ],
+    "dtype": "torch.float32",
+    "num_params": 256
+  },
+  "extractionB.model.8.running_var": {
+    "shape": [
+      256
+    ],
+    "dtype": "torch.float32",
+    "num_params": 256
+  },
+  "extractionB.model.8.num_batches_tracked": {
+    "shape": [],
+    "dtype": "torch.int64",
+    "num_params": 1
+  },
+  "extractionB.model.9.weight": {
+    "shape": [
+      512,
+      256,
+      4,
+      4
+    ],
+    "dtype": "torch.float32",
+    "num_params": 2097152
+  },
+  "extractionB.model.9.bias": {
+    "shape": [
+      512
+    ],
+    "dtype": "torch.float32",
+    "num_params": 512
+  },
+  "extractionB.model.11.weight": {
+    "shape": [
+      512
+    ],
+    "dtype": "torch.float32",
+    "num_params": 512
+  },
+  "extractionB.model.11.bias": {
+    "shape": [
+      512
+    ],
+    "dtype": "torch.float32",
+    "num_params": 512
+  },
+  "extractionB.model.11.running_mean": {
+    "shape": [
+      512
+    ],
+    "dtype": "torch.float32",
+    "num_params": 512
+  },
+  "extractionB.model.11.running_var": {
+    "shape": [
+      512
+    ],
+    "dtype": "torch.float32",
+    "num_params": 512
+  },
+  "extractionB.model.11.num_batches_tracked": {
+    "shape": [],
+    "dtype": "torch.int64",
+    "num_params": 1
+  },
+  "extractionB.model.12.weight": {
+    "shape": [
+      512,
+      512,
+      3,
+      3
+    ],
+    "dtype": "torch.float32",
+    "num_params": 2359296
+  },
+  "extractionB.model.12.bias": {
+    "shape": [
+      512
+    ],
+    "dtype": "torch.float32",
+    "num_params": 512
+  },
+  "extractionB.model.14.weight": {
+    "shape": [
+      512
+    ],
+    "dtype": "torch.float32",
+    "num_params": 512
+  },
+  "extractionB.model.14.bias": {
+    "shape": [
+      512
+    ],
+    "dtype": "torch.float32",
+    "num_params": 512
+  },
+  "extractionB.model.14.running_mean": {
+    "shape": [
+      512
+    ],
+    "dtype": "torch.float32",
+    "num_params": 512
+  },
+  "extractionB.model.14.running_var": {
+    "shape": [
+      512
+    ],
+    "dtype": "torch.float32",
+    "num_params": 512
+  },
+  "extractionB.model.14.num_batches_tracked": {
+    "shape": [],
+    "dtype": "torch.int64",
+    "num_params": 1
+  },
+  "extractionB.model.15.weight": {
+    "shape": [
+      512,
+      512,
+      3,
+      3
+    ],
+    "dtype": "torch.float32",
+    "num_params": 2359296
+  },
+  "extractionB.model.15.bias": {
+    "shape": [
+      512
+    ],
+    "dtype": "torch.float32",
+    "num_params": 512
+  },
+  "regression.conv.0.weight": {
+    "shape": [
+      512,
+      192,
+      4,
+      4
+    ],
+    "dtype": "torch.float32",
+    "num_params": 1572864
+  },
+  "regression.conv.0.bias": {
+    "shape": [
+      512
+    ],
+    "dtype": "torch.float32",
+    "num_params": 512
+  },
+  "regression.conv.1.weight": {
+    "shape": [
+      512
+    ],
+    "dtype": "torch.float32",
+    "num_params": 512
+  },
+  "regression.conv.1.bias": {
+    "shape": [
+      512
+    ],
+    "dtype": "torch.float32",
+    "num_params": 512
+  },
+  "regression.conv.1.running_mean": {
+    "shape": [
+      512
+    ],
+    "dtype": "torch.float32",
+    "num_params": 512
+  },
+  "regression.conv.1.running_var": {
+    "shape": [
+      512
+    ],
+    "dtype": "torch.float32",
+    "num_params": 512
+  },
+  "regression.conv.1.num_batches_tracked": {
+    "shape": [],
+    "dtype": "torch.int64",
+    "num_params": 1
+  },
+  "regression.conv.3.weight": {
+    "shape": [
+      256,
+      512,
+      4,
+      4
+    ],
+    "dtype": "torch.float32",
+    "num_params": 2097152
+  },
+  "regression.conv.3.bias": {
+    "shape": [
+      256
+    ],
+    "dtype": "torch.float32",
+    "num_params": 256
+  },
+  "regression.conv.4.weight": {
+    "shape": [
+      256
+    ],
+    "dtype": "torch.float32",
+    "num_params": 256
+  },
+  "regression.conv.4.bias": {
+    "shape": [
+      256
+    ],
+    "dtype": "torch.float32",
+    "num_params": 256
+  },
+  "regression.conv.4.running_mean": {
+    "shape": [
+      256
+    ],
+    "dtype": "torch.float32",
+    "num_params": 256
+  },
+  "regression.conv.4.running_var": {
+    "shape": [
+      256
+    ],
+    "dtype": "torch.float32",
+    "num_params": 256
+  },
+  "regression.conv.4.num_batches_tracked": {
+    "shape": [],
+    "dtype": "torch.int64",
+    "num_params": 1
+  },
+  "regression.conv.6.weight": {
+    "shape": [
+      128,
+      256,
+      3,
+      3
+    ],
+    "dtype": "torch.float32",
+    "num_params": 294912
+  },
+  "regression.conv.6.bias": {
+    "shape": [
+      128
+    ],
+    "dtype": "torch.float32",
+    "num_params": 128
+  },
+  "regression.conv.7.weight": {
+    "shape": [
+      128
+    ],
+    "dtype": "torch.float32",
+    "num_params": 128
+  },
+  "regression.conv.7.bias": {
+    "shape": [
+      128
+    ],
+    "dtype": "torch.float32",
+    "num_params": 128
+  },
+  "regression.conv.7.running_mean": {
+    "shape": [
+      128
+    ],
+    "dtype": "torch.float32",
+    "num_params": 128
+  },
+  "regression.conv.7.running_var": {
+    "shape": [
+      128
+    ],
+    "dtype": "torch.float32",
+    "num_params": 128
+  },
+  "regression.conv.7.num_batches_tracked": {
+    "shape": [],
+    "dtype": "torch.int64",
+    "num_params": 1
+  },
+  "regression.conv.9.weight": {
+    "shape": [
+      64,
+      128,
+      3,
+      3
+    ],
+    "dtype": "torch.float32",
+    "num_params": 73728
+  },
+  "regression.conv.9.bias": {
+    "shape": [
+      64
+    ],
+    "dtype": "torch.float32",
+    "num_params": 64
+  },
+  "regression.conv.10.weight": {
+    "shape": [
+      64
+    ],
+    "dtype": "torch.float32",
+    "num_params": 64
+  },
+  "regression.conv.10.bias": {
+    "shape": [
+      64
+    ],
+    "dtype": "torch.float32",
+    "num_params": 64
+  },
+  "regression.conv.10.running_mean": {
+    "shape": [
+      64
+    ],
+    "dtype": "torch.float32",
+    "num_params": 64
+  },
+  "regression.conv.10.running_var": {
+    "shape": [
+      64
+    ],
+    "dtype": "torch.float32",
+    "num_params": 64
+  },
+  "regression.conv.10.num_batches_tracked": {
+    "shape": [],
+    "dtype": "torch.int64",
+    "num_params": 1
+  },
+  "regression.linear.weight": {
+    "shape": [
+      50,
+      768
+    ],
+    "dtype": "torch.float32",
+    "num_params": 38400
+  },
+  "regression.linear.bias": {
+    "shape": [
+      50
+    ],
+    "dtype": "torch.float32",
+    "num_params": 50
+  }
+}
