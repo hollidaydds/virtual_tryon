@@ -323,7 +323,9 @@ def try_on_shirt(person_path, shirt_path, pose_model_path='models/graph_opt.pb',
         
         # Create person representation for GMM
         body_mask = create_body_mask(pose_points, person_img.shape[0], person_img.shape[1])
-        # Use segmentation model to get torso mask
+        
+        # Get torso segmentation once and reuse it
+        segmentor = Segmentor()
         torso_mask = segmentor.segment(person_img, pose_points)
         if torso_mask is None:
             # Fallback to pose-based mask if segmentation fails
@@ -339,38 +341,38 @@ def try_on_shirt(person_path, shirt_path, pose_model_path='models/graph_opt.pb',
         shirt_img = cv2.imread(shirt_path)
         shirt_img = cv2.cvtColor(shirt_img, cv2.COLOR_BGR2RGB)  # Convert to RGB
         
-        # Remove white background from shirt
+        # Remove white background from shirt with smoother transition
         is_white = np.all(shirt_img > 240, axis=2)
-        shirt_img[is_white] = [0, 0, 0]  # Set white pixels to black
+        alpha = np.ones((shirt_img.shape[0], shirt_img.shape[1]), dtype=np.float32)
+        alpha[is_white] = 0.0
+        
+        # Apply Gaussian blur to alpha for smoother edges
+        alpha = cv2.GaussianBlur(alpha, (5, 5), 0)
         
         # Resize shirt while maintaining aspect ratio
         target_height = person_img.shape[0]
         aspect_ratio = shirt_img.shape[1] / shirt_img.shape[0]
         target_width = int(target_height * aspect_ratio)
         shirt_img = cv2.resize(shirt_img, (target_width, target_height))
+        alpha = cv2.resize(alpha, (target_width, target_height))
         
         # Center the shirt horizontally
         if target_width < person_img.shape[1]:
             pad_left = (person_img.shape[1] - target_width) // 2
             pad_right = person_img.shape[1] - target_width - pad_left
             shirt_img = cv2.copyMakeBorder(shirt_img, 0, 0, pad_left, pad_right, cv2.BORDER_CONSTANT, value=[0, 0, 0])
+            alpha = cv2.copyMakeBorder(alpha, 0, 0, pad_left, pad_right, cv2.BORDER_CONSTANT, value=[0])
         else:
             # Crop from center if shirt is too wide
             start_x = (target_width - person_img.shape[1]) // 2
             shirt_img = shirt_img[:, start_x:start_x + person_img.shape[1]]
+            alpha = alpha[:, start_x:start_x + person_img.shape[1]]
         
-        # Create alpha mask for shirt (non-black pixels)
-        shirt_mask = np.any(shirt_img > 10, axis=2).astype(np.float32)
-        
-        # Warp shirt using pose points
-        if pose_points is not None:
-            # Get segmentation mask
-            segmentor = Segmentor()
-            final_mask = segmentor.segment(person_img, pose_points)
+        # Warp shirt using pose points and TPS
+        if pose_points is not None and torso_mask is not None:
+            # Use the already computed torso mask
+            final_mask = (torso_mask * 255).astype(np.uint8)
             
-            if final_mask is None:
-                return person_img
-                
             # Find contours of the mask
             contours, _ = cv2.findContours(final_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             if not contours:
@@ -379,9 +381,8 @@ def try_on_shirt(person_path, shirt_path, pose_model_path='models/graph_opt.pb',
             # Get the largest contour
             target_contour = max(contours, key=cv2.contourArea)
             
-            # Get shirt contour
-            _, shirt_mask = cv2.threshold(cv2.cvtColor(shirt_img, cv2.COLOR_RGB2GRAY), 
-                                        10, 255, cv2.THRESH_BINARY)
+            # Create shirt mask from alpha channel
+            shirt_mask = (alpha * 255).astype(np.uint8)
             shirt_contours, _ = cv2.findContours(shirt_mask, cv2.RETR_EXTERNAL, 
                                                cv2.CHAIN_APPROX_SIMPLE)
             if not shirt_contours:
@@ -389,8 +390,8 @@ def try_on_shirt(person_path, shirt_path, pose_model_path='models/graph_opt.pb',
                 
             shirt_contour = max(shirt_contours, key=cv2.contourArea)
             
-            # Sample points along contours
-            num_points = 100
+            # Sample points along contours with more points for better detail
+            num_points = 200  # Increased from 100
             target_points = np.array([
                 target_contour[i * len(target_contour) // num_points][0]
                 for i in range(num_points)
@@ -401,46 +402,145 @@ def try_on_shirt(person_path, shirt_path, pose_model_path='models/graph_opt.pb',
                 for i in range(num_points)
             ], dtype=np.float32)
             
-            # Calculate transformation matrix
-            shirt_mean = np.mean(shirt_points, axis=0)
-            target_mean = np.mean(target_points, axis=0)
+            # Add additional control points from pose
+            if pose_points[1] is not None:  # neck
+                target_points = np.vstack([target_points, pose_points[1]])
+                shirt_center_top = np.array([shirt_img.shape[1]//2, 0])
+                shirt_points = np.vstack([shirt_points, shirt_points[0]])  # Use first point instead
             
-            # Center the points
-            shirt_centered = shirt_points - shirt_mean
-            target_centered = target_points - target_mean
+            # Create triangulation for piece-wise affine warping
+            rect = (0, 0, shirt_img.shape[1], shirt_img.shape[0])
+            subdiv = cv2.Subdiv2D(rect)
             
-            # Calculate the scale factor
-            shirt_scale = np.sqrt(np.sum(shirt_centered ** 2))
-            target_scale = np.sqrt(np.sum(target_centered ** 2))
-            scale = target_scale / shirt_scale
+            # Add points to subdivision
+            for point in shirt_points:
+                subdiv.insert(tuple(map(float, point)))
             
-            # Calculate rotation matrix
-            covariance = np.dot(shirt_centered.T, target_centered)
-            U, _, Vt = np.linalg.svd(covariance)
-            rotation = np.dot(Vt.T, U.T)
+            # Get triangles
+            triangles = subdiv.getTriangleList()
+            triangles = np.array(triangles, dtype=np.int32)
             
-            # Combine transformations
-            transform = np.zeros((2, 3), dtype=np.float32)
-            transform[:2, :2] = scale * rotation
-            transform[:, 2] = target_mean - np.dot(scale * rotation, shirt_mean)
+            # Convert triangles to point indices
+            src_triangles = []
+            dst_triangles = []
             
-            # Apply transformation
-            warped_shirt = cv2.warpAffine(shirt_img, transform, 
-                                        (person_img.shape[1], person_img.shape[0]),
-                                        borderMode=cv2.BORDER_REPLICATE)
+            for t in triangles:
+                pt1 = (t[0], t[1])
+                pt2 = (t[2], t[3])
+                pt3 = (t[4], t[5])
+                
+                # Find indices in shirt_points
+                idx1 = np.argmin(np.sum((shirt_points - pt1) ** 2, axis=1))
+                idx2 = np.argmin(np.sum((shirt_points - pt2) ** 2, axis=1))
+                idx3 = np.argmin(np.sum((shirt_points - pt3) ** 2, axis=1))
+                
+                if idx1 != idx2 and idx2 != idx3 and idx3 != idx1:
+                    src_tri = np.float32([shirt_points[idx1], shirt_points[idx2], shirt_points[idx3]])
+                    dst_tri = np.float32([target_points[idx1], target_points[idx2], target_points[idx3]])
+                    src_triangles.append(src_tri)
+                    dst_triangles.append(dst_tri)
             
-            # Convert mask to float and ensure 3 channels
-            mask_3ch = np.repeat((final_mask/255.0)[..., np.newaxis], 3, axis=2)
+            # Create output image
+            warped_shirt = np.zeros_like(shirt_img, dtype=np.float32)
+            warped_alpha = np.zeros((person_img.shape[0], person_img.shape[1], 1), dtype=np.float32)
             
-            # Convert images to float for blending
-            warped_shirt_float = warped_shirt.astype(float) / 255.0
-            person_img_float = person_img.astype(float) / 255.0
+            # Warp each triangle
+            for src_tri, dst_tri in zip(src_triangles, dst_triangles):
+                # Calculate bounding box for destination triangle
+                r1 = cv2.boundingRect(np.float32([dst_tri]))
+                r2 = cv2.boundingRect(np.float32([src_tri]))
+                
+                # Offset points by left top corner of the respective rectangles
+                tri1_cropped = []
+                tri2_cropped = []
+                
+                for i in range(3):
+                    tri1_cropped.append(((dst_tri[i][0] - r1[0]), (dst_tri[i][1] - r1[1])))
+                    tri2_cropped.append(((src_tri[i][0] - r2[0]), (src_tri[i][1] - r2[1])))
+                
+                # Get mask for triangle
+                mask = np.zeros((r1[3], r1[2], 3), dtype=np.float32)
+                cv2.fillConvexPoly(mask, np.int32(tri1_cropped), (1.0, 1.0, 1.0))
+                
+                # Apply warp to small rectangular patches
+                img1_cropped = shirt_img[r2[1]:r2[1]+r2[3], r2[0]:r2[0]+r2[2]]
+                alpha_cropped = alpha[r2[1]:r2[1]+r2[3], r2[0]:r2[0]+r2[2]]
+                
+                size = (r1[2], r1[3])
+                warp_mat = cv2.getAffineTransform(np.float32(tri2_cropped), np.float32(tri1_cropped))
+                
+                # Warp image and alpha
+                warped_patch = cv2.warpAffine(img1_cropped, warp_mat, size, None, 
+                                            flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT_101)
+                
+                # Handle alpha channel separately to ensure correct shape
+                alpha_cropped = alpha_cropped.reshape(alpha_cropped.shape + (1,)) if len(alpha_cropped.shape) == 2 else alpha_cropped
+                warped_alpha_patch = cv2.warpAffine(alpha_cropped, warp_mat, size, None,
+                                                  flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT_101)
+                
+                # Ensure all arrays have correct shapes
+                if len(warped_alpha_patch.shape) == 2:
+                    warped_alpha_patch = warped_alpha_patch[..., np.newaxis]
+                
+                # Create masks with correct dimensions
+                mask_3ch = mask
+                mask_1ch = mask[:, :, 0:1]
+                
+                # Copy triangular region with shape validation
+                if warped_patch.shape == mask_3ch.shape:
+                    warped_patch = warped_patch * mask_3ch
+                
+                if warped_alpha_patch.shape == mask_1ch.shape:
+                    warped_alpha_patch = warped_alpha_patch * mask_1ch
+                else:
+                    # Reshape warped_alpha_patch if needed
+                    warped_alpha_patch = warped_alpha_patch.reshape(mask_1ch.shape)
+                    warped_alpha_patch = warped_alpha_patch * mask_1ch
+                
+                # Copy warped patches to output image
+                img2_rect = warped_shirt[r1[1]:r1[1]+r1[3], r1[0]:r1[0]+r1[2]]
+                alpha_rect = warped_alpha[r1[1]:r1[1]+r1[3], r1[0]:r1[0]+r1[2]]
+                
+                # Create inverse masks
+                img2_rect_mask = (1.0 - mask_3ch)
+                alpha_rect_mask = (1.0 - mask_1ch)
+                
+                # Safe update of output regions
+                if (warped_patch.shape == img2_rect.shape == img2_rect_mask.shape):
+                    img2_rect[:] = warped_patch + img2_rect * img2_rect_mask
+                
+                if (warped_alpha_patch.shape == alpha_rect.shape == alpha_rect_mask.shape):
+                    alpha_rect[:] = warped_alpha_patch + alpha_rect * alpha_rect_mask
             
-            # Apply alpha blending
-            result = warped_shirt_float * mask_3ch + person_img_float * (1.0 - mask_3ch)
+            # Clean up warped alpha
+            warped_alpha = np.clip(warped_alpha, 0, 1)
+            warped_alpha = cv2.GaussianBlur(warped_alpha, (5, 5), 0)
             
-            # Convert back to uint8
-            result = (result * 255).clip(0, 255).astype(np.uint8)
+            # Convert 2D masks to 3D if needed
+            if len(warped_alpha.shape) == 2:
+                warped_alpha = warped_alpha[..., np.newaxis]
+            if len(torso_mask.shape) == 2:
+                torso_mask = torso_mask[..., np.newaxis]
+            
+            # Ensure both masks are float32
+            warped_alpha = warped_alpha.astype(np.float32)
+            torso_mask = torso_mask.astype(np.float32)
+            
+            # Combine the masks
+            combined_mask = warped_alpha * torso_mask
+            
+            # Expand to 3 channels for RGB blending
+            combined_mask_3ch = np.repeat(combined_mask, 3, axis=2)
+            
+            # Convert images to float32 for blending
+            person_img_f = person_img.astype(np.float32)
+            warped_shirt_f = warped_shirt.astype(np.float32)
+            
+            # Perform blending
+            result = person_img_f * (1 - combined_mask_3ch) + warped_shirt_f * combined_mask_3ch
+            
+            # Clean up result
+            result = np.clip(result, 0, 255).astype(np.uint8)
             
             # Convert back to BGR for saving
             result_bgr = cv2.cvtColor(result, cv2.COLOR_RGB2BGR)

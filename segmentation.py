@@ -111,30 +111,64 @@ class Segmentor:
                 avg_sat = np.median(sample_region[:,:,1])
                 avg_val = np.median(sample_region[:,:,2])
                 
-                # Create color thresholds
-                hue_range = 20
-                sat_range = 50
-                val_range = 50
+                # Create color thresholds with wider ranges
+                hue_range = 30  
+                sat_range = 70  
+                val_range = 70  
                 
-                # Create color mask
-                color_mask = cv2.inRange(img_hsv,
-                    (max(0, avg_hue - hue_range), 
-                     max(0, avg_sat - sat_range),
-                     max(0, avg_val - val_range)),
-                    (min(180, avg_hue + hue_range),
-                     min(255, avg_sat + sat_range),
-                     min(255, avg_val + val_range)))
+                # Create color mask with adaptive thresholds
+                lower_bound = np.array([
+                    max(0, avg_hue - hue_range),
+                    max(0, avg_sat - sat_range),
+                    max(0, avg_val - val_range)
+                ])
+                upper_bound = np.array([
+                    min(180, avg_hue + hue_range),
+                    min(255, avg_sat + sat_range),
+                    min(255, avg_val + val_range)
+                ])
                 
-                # Combine pose and color masks
-                combined_mask = cv2.bitwise_and(mask, color_mask)
+                # Create initial color mask
+                color_mask = cv2.inRange(img_hsv, lower_bound, upper_bound)
                 
-                # Clean up the mask
+                # Enhance color mask with additional processing
                 kernel = np.ones((5,5), np.uint8)
-                combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_CLOSE, kernel)
-                combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_OPEN, kernel)
+                color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_CLOSE, kernel)
+                color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_OPEN, kernel)
                 
-                # Final smoothing
-                combined_mask = cv2.GaussianBlur(combined_mask, (5, 5), 0)
+                # Combine pose and color masks with weighted blending
+                pose_weight = 0.7  
+                color_weight = 0.3
+                
+                pose_mask_float = mask.astype(float) / 255
+                color_mask_float = color_mask.astype(float) / 255
+                
+                # Create distance-based weight map
+                y_coords, x_coords = np.ogrid[:h, :w]
+                center_y = (neck[1] + hips[0][1]) // 2
+                center_x = (shoulders[0][0] + shoulders[1][0]) // 2
+                
+                # Calculate normalized distances
+                dist_y = np.abs(y_coords - center_y) / torso_height
+                dist_x = np.abs(x_coords - center_x) / shoulder_width
+                dist_map = np.sqrt(dist_x**2 + dist_y**2)
+                
+                # Create smooth weight transition
+                weight_map = np.clip(1 - dist_map, 0, 1)
+                
+                # Combine masks with weighted blending
+                combined_mask = (pose_mask_float * pose_weight * weight_map +
+                               color_mask_float * color_weight * (1 - weight_map))
+                
+                # Threshold and clean up
+                combined_mask = (combined_mask > 0.2).astype(np.uint8) * 255  
+                
+                # Final cleanup and smoothing
+                kernel_size = max(5, int(shoulder_width * 0.03))  
+                kernel = np.ones((kernel_size, kernel_size), np.uint8)
+                combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_CLOSE, kernel)
+                combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_DILATE, kernel)  
+                combined_mask = cv2.GaussianBlur(combined_mask, (kernel_size, kernel_size), 0)
                 
                 return combined_mask
             
