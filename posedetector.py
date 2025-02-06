@@ -92,26 +92,128 @@ class PoseDetector:
         return points
 
     def draw_landmarks(self, frame, points):
-        """Draw the detected pose points and connections"""
+        """Draw the detected pose landmarks and connections."""
         if frame is None or points is None:
             logger.warning("Cannot draw landmarks: frame or points is None")
             return frame
-            
-        # Draw points
-        for i, p in enumerate(points):
-            if p is not None:
-                cv2.circle(frame, p, 8, (0, 255, 255), thickness=-1, lineType=cv2.FILLED)
-                cv2.putText(frame, f"{list(self.BODY_PARTS.keys())[i]}", p,
-                          cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, lineType=cv2.LINE_AA)
         
-        # Draw skeleton
+        # Draw skeleton first (behind points)
         for pair in self.POSE_PAIRS:
             partFrom = pair[0]
             partTo = pair[1]
-            idFrom = self.BODY_PARTS[partFrom]
-            idTo = self.BODY_PARTS[partTo]
+            idFrom = list(self.BODY_PARTS.keys()).index(partFrom)
+            idTo = list(self.BODY_PARTS.keys()).index(partTo)
             
             if points[idFrom] and points[idTo]:
-                cv2.line(frame, points[idFrom], points[idTo], (0, 255, 0), 3)
+                cv2.line(frame, points[idFrom], points[idTo], (0, 255, 0), 2)
+        
+        # Define face region points
+        face_points = ["Nose", "Neck", "REye", "LEye", "REar", "LEar"]
+        face_indices = [list(self.BODY_PARTS.keys()).index(p) for p in face_points]
+        
+        # Group points by vertical position
+        valid_points = [(i, p) for i, p in enumerate(points) if p is not None]
+        
+        # Separate face points and body points
+        face_valid_points = [(i, p) for i, p in valid_points if i in face_indices]
+        body_valid_points = [(i, p) for i, p in valid_points if i not in face_indices]
+        
+        # Process face points with special spacing
+        if face_valid_points:
+            # Sort face points by y coordinate
+            face_valid_points.sort(key=lambda x: x[1][1])
+            
+            for idx, (i, p) in enumerate(face_valid_points):
+                # Draw point
+                cv2.circle(frame, p, 3, (0, 255, 255), thickness=-1, lineType=cv2.FILLED)
                 
+                # Get label
+                label = list(self.BODY_PARTS.keys())[i]
+                text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.35, 1)[0]
+                
+                # Alternate between left and right sides for face labels
+                if idx % 2 == 0:
+                    text_x = p[0] + 25  # Place on right
+                else:
+                    text_x = p[0] - text_size[0] - 25  # Place on left
+                
+                # Stagger vertical positions more aggressively for face
+                text_y = p[1] + (15 * (idx % 3) - 15)
+                
+                # Add background rectangle
+                rect_pad = 2
+                rect_x = text_x - rect_pad
+                rect_y = text_y - text_size[1] - rect_pad
+                rect_w = text_size[0] + 2 * rect_pad
+                rect_h = text_size[1] + 2 * rect_pad
+                
+                cv2.rectangle(frame, 
+                             (rect_x, rect_y), 
+                             (rect_x + rect_w, rect_y + rect_h),
+                             (255, 255, 255), 
+                             -1)
+                
+                cv2.putText(frame, label, (text_x, text_y),
+                          cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 255), 1, lineType=cv2.LINE_AA)
+        
+        # Process body points
+        vertical_groups = {}
+        
+        # Group points that are within 40 pixels vertically (increased from 30)
+        for i, p in body_valid_points:
+            grouped = False
+            for y in vertical_groups:
+                if abs(p[1] - y) < 40:
+                    vertical_groups[y].append((i, p))
+                    grouped = True
+                    break
+            if not grouped:
+                vertical_groups[p[1]] = [(i, p)]
+        
+        # Draw body points and labels
+        for y, group in vertical_groups.items():
+            # Sort points in group by x-coordinate
+            group.sort(key=lambda x: x[1][0])
+            
+            # Calculate vertical offset for this group
+            base_y_offset = 25 if y < frame.shape[0] // 2 else -15
+            
+            for idx, (i, p) in enumerate(group):
+                # Draw point
+                cv2.circle(frame, p, 3, (0, 255, 255), thickness=-1, lineType=cv2.FILLED)
+                
+                # Get label
+                label = list(self.BODY_PARTS.keys())[i]
+                text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.35, 1)[0]
+                
+                # Calculate horizontal position with increased offset
+                if p[0] < frame.shape[1] // 2:
+                    text_x = p[0] + 15
+                else:
+                    text_x = p[0] - text_size[0] - 15
+                
+                # Calculate vertical position with increased stagger
+                if len(group) > 1:
+                    y_offset = base_y_offset + (15 * (idx % 2))  # Increased stagger
+                else:
+                    y_offset = base_y_offset
+                
+                text_y = p[1] + y_offset
+                
+                # Add background rectangle
+                rect_pad = 2
+                rect_x = text_x - rect_pad
+                rect_y = text_y - text_size[1] - rect_pad
+                rect_w = text_size[0] + 2 * rect_pad
+                rect_h = text_size[1] + 2 * rect_pad
+                
+                cv2.rectangle(frame, 
+                             (rect_x, rect_y), 
+                             (rect_x + rect_w, rect_y + rect_h),
+                             (255, 255, 255), 
+                             -1)
+                
+                cv2.putText(frame, label, (text_x, text_y),
+                          cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 255), 1, lineType=cv2.LINE_AA)
+        
         return frame

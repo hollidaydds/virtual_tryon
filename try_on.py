@@ -230,75 +230,69 @@ def try_on_shirt(person_path, shirt_path, pose_model_path='models/graph_opt.pb',
         import traceback
         traceback.print_exc()
 
-def main():
-    # Parse command line arguments
+def main(person_path, shirt_path):
+    """Main function to process virtual try-on."""
+    # Load person image
+    person_img = cv2.imread(person_path)
+    person_img = cv2.cvtColor(person_img, cv2.COLOR_BGR2RGB)
+    
+    # Get pose points
+    pose_detector = PoseDetector(model_path='models/graph_opt.pb')
+    pose_points = pose_detector.detect(person_img)
+    
+    if not pose_points or None in [pose_points[i] for i in [2, 5, 8, 11]]:
+        print("Could not detect pose in the person image")
+        return
+    
+    # Create pose visualization
+    pose_vis = person_img.copy()
+    pose_detector.draw_landmarks(pose_vis, pose_points)
+    pose_vis_bgr = cv2.cvtColor(pose_vis, cv2.COLOR_RGB2BGR)
+    cv2.imwrite('output/pose_result.png', pose_vis_bgr)
+    
+    # Create masks
+    torso_mask = create_torso_mask(pose_points, person_img.shape[0], person_img.shape[1])
+    face_hair_mask = create_face_hair_mask(pose_points, person_img)
+    
+    # Prepare person representation
+    person_repr = prepare_person_representation(pose_points, torso_mask, face_hair_mask)
+    
+    # Load and prepare shirt
+    shirt_img = cv2.imread(shirt_path)
+    shirt_img = cv2.cvtColor(shirt_img, cv2.COLOR_BGR2RGB)
+    shirt_img = cv2.resize(shirt_img, (192, 256))
+    shirt_tensor = torch.FloatTensor(shirt_img).permute(2, 0, 1).unsqueeze(0) / 255.0
+    
+    # Load GMM model
+    gmm_model = load_gmm('models/gmm_final.pth')
+    
+    # Run GMM model
+    with torch.no_grad():
+        theta = gmm_model(person_repr, shirt_tensor)
+        warped_shirt = tps_transform(theta, shirt_tensor)
+        
+        # Convert warped shirt to numpy
+        warped_shirt_np = warped_shirt.squeeze().cpu().numpy()
+        warped_shirt_np = warped_shirt_np.transpose(1, 2, 0)
+        warped_shirt_np = (warped_shirt_np * 255).astype(np.uint8)
+        
+        # Resize warped shirt to original size
+        warped_shirt_full = cv2.resize(warped_shirt_np, (person_img.shape[1], person_img.shape[0]))
+        
+        # Create 3-channel torso mask and blend
+        torso_mask_3ch = np.stack([torso_mask] * 3, axis=-1)
+        warped_shirt_masked = warped_shirt_full * torso_mask_3ch
+        result = warped_shirt_masked + person_img * (1 - torso_mask_3ch)
+        
+        # Save result
+        result_bgr = cv2.cvtColor(result.astype(np.uint8), cv2.COLOR_RGB2BGR)
+        cv2.imwrite('output/try_on_result.png', result_bgr)
+        print("Result saved to output/try_on_result.png")
+        print("Pose detection saved to output/pose_result.png")
+
+if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Virtual Try-On Demo')
     parser.add_argument('person_image', help='Path to person image')
     parser.add_argument('shirt_image', help='Path to shirt image')
     args = parser.parse_args()
-
-    try:
-        # Load person image
-        person_img = cv2.imread(args.person_image)
-        person_img = cv2.cvtColor(person_img, cv2.COLOR_BGR2RGB)
-        
-        # Initialize pose detector and get pose points
-        pose_detector = PoseDetector(model_path='models/graph_opt.pb')
-        pose_points = pose_detector.detect(person_img)
-        
-        # Create masks
-        body_mask = create_body_mask(pose_points, person_img.shape[0], person_img.shape[1])
-        torso_mask = create_torso_mask(pose_points, person_img.shape[0], person_img.shape[1])
-        face_hair_mask = create_face_hair_mask(pose_points, person_img)
-        
-        # Prepare person representation
-        person_representation = prepare_person_representation(pose_points, torso_mask, face_hair_mask)
-
-        # Load and prepare clothing image
-        shirt_img = cv2.imread(args.shirt_image)
-        shirt_img = cv2.cvtColor(shirt_img, cv2.COLOR_BGR2RGB)
-        shirt_img = cv2.resize(shirt_img, (192, 256))
-        shirt_tensor = torch.FloatTensor(shirt_img).permute(2, 0, 1).unsqueeze(0) / 255.0
-
-        # Load GMM model
-        gmm_model = load_gmm('models/gmm_final.pth')
-
-        # Run GMM model
-        with torch.no_grad():
-            try:
-                # Get warping parameters
-                theta = gmm_model(person_representation, shirt_tensor)
-                
-                # Apply TPS transformation
-                warped_shirt = tps_transform(theta, shirt_tensor)
-                
-                # Convert warped shirt to numpy
-                warped_shirt_np = warped_shirt.squeeze().cpu().numpy()
-                warped_shirt_np = warped_shirt_np.transpose(1, 2, 0)
-                warped_shirt_np = (warped_shirt_np * 255).astype(np.uint8)
-                
-                # Resize warped shirt to original size
-                warped_shirt_full = cv2.resize(warped_shirt_np, (person_img.shape[1], person_img.shape[0]))
-                
-                # Create 3-channel torso mask and blend
-                torso_mask_3ch = np.stack([torso_mask] * 3, axis=-1)
-                warped_shirt_masked = warped_shirt_full * torso_mask_3ch
-                result = warped_shirt_masked + person_img * (1 - torso_mask_3ch)
-                
-                # Save final result
-                cv2.imwrite('output/try_on_result.png', cv2.cvtColor(result.astype(np.uint8), cv2.COLOR_RGB2BGR))
-                print("Result saved to output/try_on_result.png")
-
-            except Exception as e:
-                print(f"\nError in GMM forward pass: {str(e)}")
-                import traceback
-                traceback.print_exc()
-                return
-
-    except Exception as e:
-        print(f"\nError: {str(e)}")
-        import traceback
-        traceback.print_exc()
-
-if __name__ == '__main__':
-    main()
+    main(args.person_image, args.shirt_image)
