@@ -254,6 +254,24 @@ def main(person_path, shirt_path):
     torso_mask = create_torso_mask(pose_points, person_img.shape[0], person_img.shape[1])
     face_hair_mask = create_face_hair_mask(pose_points, person_img)
     
+    # Create segmentation visualization
+    seg_vis = person_img.copy().astype(np.float32)
+    
+    # Create colored overlays
+    torso_mask_3ch = np.stack([torso_mask] * 3, axis=-1)
+    face_mask_3ch = np.stack([face_hair_mask[:,:,0]] * 3, axis=-1)
+    
+    # Add colored overlays
+    seg_vis = np.where(torso_mask_3ch > 0, 
+                      seg_vis * 0.7 + np.array([255, 0, 0]) * 0.3,  # Red tint for torso
+                      seg_vis)
+    seg_vis = np.where(face_mask_3ch > 0,
+                      seg_vis * 0.7 + np.array([0, 255, 0]) * 0.3,  # Green tint for face
+                      seg_vis)
+    
+    # Save segmentation visualization
+    cv2.imwrite('output/segmentation_result.png', cv2.cvtColor(seg_vis.astype(np.uint8), cv2.COLOR_RGB2BGR))
+    
     # Prepare person representation
     person_repr = prepare_person_representation(pose_points, torso_mask, face_hair_mask)
     
@@ -289,6 +307,7 @@ def main(person_path, shirt_path):
         cv2.imwrite('output/try_on_result.png', result_bgr)
         print("Result saved to output/try_on_result.png")
         print("Pose detection saved to output/pose_result.png")
+        print("Segmentation visualization saved to output/segmentation_result.png")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Virtual Try-On Demo')
