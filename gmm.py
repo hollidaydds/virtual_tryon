@@ -259,78 +259,37 @@ def warp_clothing(gmm_model, person_repr, clothing_img):
         warped_cloth = tps_transform(theta, clothing_img)
         return warped_cloth
 
-def tps_transform(theta, clothing, target_height=256, target_width=192):
-    """
-    Apply Thin Plate Spline transformation to warp the clothing image.
-    Args:
-        theta: Tensor of shape (batch_size, 2 * num_control_points)
-        clothing: Tensor of shape (batch_size, channels, height, width)
-    Returns:
-        Warped clothing tensor of shape (batch_size, channels, height, width)
-    """
+def tps_transform(theta, image):
+    """Apply Thin Plate Spline transformation to the image."""
     batch_size = theta.size(0)
-    num_control_points = theta.size(1) // 2
     
-    # Create control points grid
-    grid_size = int(np.sqrt(num_control_points))
-    target_control_points = []
+    # Grid size for TPS
+    grid_size = 5
     
-    # Create uniform grid of control points with more padding to reduce edge distortion
-    padding = 0.15  # Increased padding
-    for i in range(grid_size):
-        for j in range(grid_size):
-            x = 2 * ((j / (grid_size - 1)) * (1 - 2*padding) + padding - 0.5)
-            y = 2 * ((i / (grid_size - 1)) * (1 - 2*padding) + padding - 0.5)
-            target_control_points.append([x, y])
-    
-    target_control_points = torch.FloatTensor(target_control_points)
-    target_control_points = target_control_points.unsqueeze(0).repeat(batch_size, 1, 1)
-    
-    # Reshape and normalize source control points from theta with reduced range
-    source_control_points = theta.view(batch_size, num_control_points, 2)
-    source_control_points = torch.tanh(source_control_points) * 0.8  # Reduced range to [-0.8, 0.8]
-    
-    # Create sampling grid
-    x = torch.linspace(-1, 1, target_width)
-    y = torch.linspace(-1, 1, target_height)
+    # Create regular grid
+    x = torch.linspace(-0.9, 0.9, grid_size)
+    y = torch.linspace(-0.9, 0.9, grid_size)
     grid_y, grid_x = torch.meshgrid(y, x)
-    grid_points = torch.stack([grid_x.flatten(), grid_y.flatten()], dim=1)
-    grid_points = grid_points.unsqueeze(0).repeat(batch_size, 1, 1)
+    target_coords = torch.stack([grid_x, grid_y], dim=-1)
     
-    # Compute TPS weights with increased regularization
-    D = torch.cdist(target_control_points, target_control_points)
-    K = D * torch.log(D + 1e-6)
-    P = torch.cat([torch.ones(batch_size, num_control_points, 1), target_control_points], dim=2)
-    
-    # Increase regularization to prevent extreme deformations
-    reg_lambda = 0.001  # Increased from 0.0005
-    L = torch.zeros(batch_size, num_control_points + 3, num_control_points + 3)
-    L[:, :num_control_points, :num_control_points] = K + reg_lambda * torch.eye(num_control_points)
-    L[:, :num_control_points, num_control_points:] = P
-    L[:, num_control_points:, :num_control_points] = P.transpose(1, 2)
-    L[:, num_control_points:, num_control_points:] = torch.zeros(batch_size, 3, 3)
-    
-    Y = torch.cat([source_control_points, torch.zeros(batch_size, 3, 2)], dim=1)
-    weights = torch.linalg.solve(L, Y)
+    # Reshape target coordinates
+    Y, X = target_coords.shape[:2]
+    target_coords = target_coords.reshape(-1, 2)
+    target_coords = target_coords.unsqueeze(0).repeat(batch_size, 1, 1)
     
     # Apply transformation
-    D = torch.cdist(grid_points, target_control_points)
-    K = D * torch.log(D + 1e-6)
-    P = torch.cat([torch.ones(batch_size, target_height * target_width, 1), grid_points], dim=2)
+    source_coords = target_coords + theta.view(batch_size, -1, 2)
     
-    transformed_points = torch.bmm(K, weights[:, :num_control_points, :]) + torch.bmm(P, weights[:, num_control_points:, :])
-    transformed_points = transformed_points.view(batch_size, target_height, target_width, 2)
+    # Ensure source coordinates stay within bounds
+    source_coords = torch.clamp(source_coords, -0.9, 0.9)
     
-    # Constrain transformed points to prevent extreme distortions
-    transformed_points = torch.tanh(transformed_points) * 0.9  # Further limit the range
+    # Create sampling grid
+    source_coords = source_coords.view(batch_size, Y, X, 2)
     
-    # Use grid_sample with bicubic interpolation for better detail preservation
-    warped_cloth = F.grid_sample(
-        clothing, 
-        transformed_points, 
-        mode='bicubic',
-        padding_mode='border',
-        align_corners=True
-    )
+    # Apply grid sample with bilinear interpolation
+    transformed_image = F.grid_sample(image, source_coords,
+                                    mode='bilinear',
+                                    padding_mode='border',
+                                    align_corners=True)
     
-    return warped_cloth
+    return transformed_image

@@ -2,10 +2,13 @@ import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
+import torchvision.transforms as transforms
 from PIL import Image
 import argparse
 from posedetector import PoseDetector
 from gmm import load_gmm, prepare_person_representation, tps_transform
+from utils import UNet
+from segmentation import Segmentor
 import traceback
 
 def load_segmentation_model(model_path='models/segmentation_model.pth'):
@@ -48,33 +51,114 @@ def segment_shirt(model, image_path, threshold=0.5):
     return mask
 
 def create_body_mask(pose_points, height, width):
-    """Create a rough body mask using pose points"""
-    mask = np.zeros((height, width), dtype=np.uint8)
+    """Create a full body mask using pose points."""
+    # Get all relevant points
+    nose = pose_points[0]
+    neck = pose_points[1]
+    r_shoulder = pose_points[2]
+    r_elbow = pose_points[3]
+    r_wrist = pose_points[4]
+    l_shoulder = pose_points[5]
+    l_elbow = pose_points[6]
+    l_wrist = pose_points[7]
+    r_hip = pose_points[8]
+    r_knee = pose_points[9]
+    r_ankle = pose_points[10]
+    l_hip = pose_points[11]
+    l_knee = pose_points[12]
+    l_ankle = pose_points[13]
     
-    # Connect points to create a rough body shape
-    body_parts = [
-        # Torso
-        [2, 5, 11, 8, 2],  # shoulders to hips
-        # Arms
-        [2, 3, 4],  # right arm
-        [5, 6, 7],  # left arm
-        # Legs
-        [8, 9, 10],  # right leg
-        [11, 12, 13],  # left leg
+    # Convert valid points to numpy arrays
+    points = []
+    for p in [nose, neck, r_shoulder, r_elbow, r_wrist, l_shoulder, l_elbow, l_wrist,
+              r_hip, r_knee, r_ankle, l_hip, l_knee, l_ankle]:
+        if p is not None:
+            points.append(np.array(p))
+        else:
+            return np.zeros((height, width), dtype=np.float32)
+    
+    [nose, neck, r_shoulder, r_elbow, r_wrist, l_shoulder, l_elbow, l_wrist,
+     r_hip, r_knee, r_ankle, l_hip, l_knee, l_ankle] = points
+    
+    # Calculate key measurements
+    shoulder_width = np.linalg.norm(r_shoulder - l_shoulder)
+    hip_width = np.linalg.norm(r_hip - l_hip)
+    
+    # Create body mask
+    mask = np.zeros((height, width), dtype=np.float32)
+    
+    # Helper function to draw a filled polygon
+    def draw_polygon(points):
+        if len(points) > 0:
+            pts = np.array(points, dtype=np.int32)
+            cv2.fillConvexPoly(mask, pts, 1.0)
+    
+    # Draw head and neck
+    head_top = nose + (nose - neck) * 1.2
+    head_width = shoulder_width * 0.4
+    head_points = [
+        tuple(map(int, head_top + np.array([-head_width/2, 0]))),
+        tuple(map(int, head_top + np.array([head_width/2, 0]))),
+        tuple(map(int, r_shoulder)),
+        tuple(map(int, l_shoulder))
     ]
+    draw_polygon(head_points)
     
-    for part in body_parts:
-        points = []
-        for i in part:
-            if pose_points[i] is not None:
-                points.append([int(pose_points[i][0]), int(pose_points[i][1])])
-        if len(points) >= 2:
-            points = np.array(points, dtype=np.int32)
-            cv2.fillConvexPoly(mask, points, 1)
+    # Draw torso with curved sides
+    num_points = 8
+    r_side_points = []
+    l_side_points = []
     
-    # Dilate to create a fuller body shape
-    kernel = np.ones((20, 20), np.uint8)
-    mask = cv2.dilate(mask, kernel, iterations=1)
+    for i in range(num_points):
+        t = i / (num_points - 1)
+        # Interpolate between shoulder and hip
+        r_point = r_shoulder * (1-t) + r_hip * t
+        l_point = l_shoulder * (1-t) + l_hip * t
+        # Add curve
+        curve = np.sin(t * np.pi) * shoulder_width * 0.15
+        r_point = r_point + np.array([curve, 0])
+        l_point = l_point + np.array([-curve, 0])
+        r_side_points.append(tuple(map(int, r_point)))
+        l_side_points.append(tuple(map(int, l_point)))
+    
+    # Draw torso
+    torso_points = r_side_points + l_side_points[::-1]
+    draw_polygon(torso_points)
+    
+    # Draw arms
+    arm_width = shoulder_width * 0.15
+    
+    def draw_limb(p1, p2, width):
+        if p1 is not None and p2 is not None:
+            vec = p2 - p1
+            length = np.linalg.norm(vec)
+            if length > 0:
+                norm = vec / length
+                perp = np.array([-norm[1], norm[0]]) * width
+                points = [
+                    tuple(map(int, p1 + perp)),
+                    tuple(map(int, p2 + perp)),
+                    tuple(map(int, p2 - perp)),
+                    tuple(map(int, p1 - perp))
+                ]
+                draw_polygon(points)
+    
+    # Draw arms
+    draw_limb(r_shoulder, r_elbow, arm_width)
+    draw_limb(r_elbow, r_wrist, arm_width * 0.8)
+    draw_limb(l_shoulder, l_elbow, arm_width)
+    draw_limb(l_elbow, l_wrist, arm_width * 0.8)
+    
+    # Draw legs
+    leg_width = hip_width * 0.25
+    draw_limb(r_hip, r_knee, leg_width)
+    draw_limb(r_knee, r_ankle, leg_width * 0.8)
+    draw_limb(l_hip, l_knee, leg_width)
+    draw_limb(l_knee, l_ankle, leg_width * 0.8)
+    
+    # Smooth edges
+    mask = cv2.GaussianBlur(mask, (5, 5), 1.0)
+    mask = np.clip(mask, 0, 1)
     
     return mask
 
@@ -107,62 +191,120 @@ def create_face_hair_mask(pose_points, img):
     return mask
 
 def create_torso_mask(pose_points, height, width):
-    """Create a binary mask for the torso region using pose points."""
+    """Create a binary mask for the torso region."""
+    # Get key points
+    neck = pose_points[1]
+    r_shoulder = pose_points[2]
+    l_shoulder = pose_points[5]
+    r_hip = pose_points[8]
+    l_hip = pose_points[11]
+    r_elbow = pose_points[3]
+    l_elbow = pose_points[6]
+    
+    if any(p is None for p in [neck, r_shoulder, l_shoulder, r_hip, l_hip]):
+        return np.zeros((height, width), dtype=np.float32)
+    
+    # Convert points to numpy arrays
+    neck = np.array(neck)
+    r_shoulder = np.array(r_shoulder)
+    l_shoulder = np.array(l_shoulder)
+    r_hip = np.array(r_hip)
+    l_hip = np.array(l_hip)
+    r_elbow = np.array(r_elbow) if r_elbow is not None else None
+    l_elbow = np.array(l_elbow) if l_elbow is not None else None
+    
+    # Calculate key measurements
+    shoulder_width = np.linalg.norm(r_shoulder - l_shoulder)
+    hip_width = np.linalg.norm(r_hip - l_hip)
+    torso_height = np.linalg.norm((r_hip + l_hip)/2 - neck)
+    
+    # Create collar points
+    collar_width = shoulder_width * 0.3
+    collar_height = collar_width * 0.2
+    collar_center = neck + np.array([0, -collar_height])
+    collar_right = collar_center + np.array([collar_width/2, 0])
+    collar_left = collar_center + np.array([-collar_width/2, 0])
+    
+    # Create shoulder points with natural padding
+    shoulder_pad = shoulder_width * 0.2  # Slightly reduced
+    r_shoulder_out = r_shoulder + np.array([shoulder_pad, 0])
+    l_shoulder_out = l_shoulder + np.array([-shoulder_pad, 0])
+    
+    # Add hip padding - make it proportional to shoulder padding
+    hip_pad = shoulder_pad * 0.9  # Slightly less than shoulder pad
+    r_hip_out = r_hip + np.array([hip_pad, 0])
+    l_hip_out = l_hip + np.array([-hip_pad, 0])
+    
+    # Create curved sides using multiple control points
+    num_points = 16  # Increased for even smoother curves
+    r_side_points = []
+    l_side_points = []
+    
+    # Helper function to get sleeve direction
+    def get_sleeve_direction(shoulder, elbow):
+        if elbow is not None:
+            return (elbow - shoulder) / np.linalg.norm(elbow - shoulder)
+        return np.array([1, 0])  # Default horizontal direction
+    
+    r_sleeve_dir = get_sleeve_direction(r_shoulder, r_elbow)
+    l_sleeve_dir = get_sleeve_direction(l_shoulder, l_elbow)
+    
+    # Calculate waist position (approximately)
+    waist_height = (r_hip[1] + l_hip[1]) / 2 - (r_shoulder[1] + l_shoulder[1]) / 2
+    waist_y = r_shoulder[1] + waist_height * 0.6  # Waist at 60% down from shoulder
+    
+    for i in range(num_points):
+        t = i / (num_points - 1)
+        
+        # Base points - interpolate between padded points
+        r_base = r_shoulder_out * (1-t) + r_hip_out * t
+        l_base = l_shoulder_out * (1-t) + l_hip_out * t
+        
+        # Calculate distance from waist
+        dist_from_waist = abs(r_base[1] - waist_y) / waist_height
+        
+        # Curve inward more at waist, less at shoulders and hips
+        curve_factor = 0.3 * (1 - np.exp(-dist_from_waist * 2))  # Exponential falloff
+        
+        # Add natural curves that taper in at waist
+        r_curve = shoulder_width * curve_factor
+        l_curve = -shoulder_width * curve_factor
+        
+        # Add sleeve influence only in upper body
+        if t < 0.3:
+            sleeve_influence = (0.3 - t) / 0.3
+            r_base = r_base + r_sleeve_dir * shoulder_width * 0.15 * sleeve_influence
+            l_base = l_base + l_sleeve_dir * shoulder_width * 0.15 * sleeve_influence
+        
+        # Calculate final points
+        r_point = r_base + np.array([r_curve, 0])
+        l_point = l_base + np.array([l_curve, 0])
+        
+        # Add slight forward curve throughout torso
+        forward_curve = np.sin(t * np.pi) * shoulder_width * 0.05
+        r_point = r_point + np.array([0, forward_curve])
+        l_point = l_point + np.array([0, forward_curve])
+        
+        r_side_points.append(tuple(map(int, r_point)))
+        l_side_points.append(tuple(map(int, l_point)))
+    
+    # Create mask
     mask = np.zeros((height, width), dtype=np.float32)
     
-    # Convert pose points to numpy arrays
-    left_shoulder = np.array(pose_points[5])
-    right_shoulder = np.array(pose_points[2])
-    left_hip = np.array(pose_points[11])
-    right_hip = np.array(pose_points[8])
-    neck = np.array(pose_points[1])
+    # Draw the torso shape
+    points = ([tuple(map(int, p)) for p in [collar_center, collar_right, r_shoulder_out]] + 
+             r_side_points + 
+             [tuple(map(int, r_hip_out)), tuple(map(int, l_hip_out))] + 
+             l_side_points[::-1] + 
+             [tuple(map(int, l_shoulder_out)), tuple(map(int, collar_left))])
     
-    # Calculate additional points for natural shirt shape
-    shoulder_width = np.linalg.norm(left_shoulder - right_shoulder)
-    hip_width = np.linalg.norm(left_hip - right_hip)
+    points_array = np.array(points, dtype=np.int32)
+    cv2.fillPoly(mask, [points_array], 1.0)
     
-    # Create sleeve points (reduced outward extension)
-    left_sleeve = left_shoulder + np.array([-shoulder_width*0.15, 0])  # Reduced from 0.3
-    right_sleeve = right_shoulder + np.array([shoulder_width*0.15, 0])  # Reduced from 0.3
+    # Apply minimal smoothing
+    mask = cv2.GaussianBlur(mask, (3, 3), 0.5)
     
-    # Create points for natural shirt curve (reduced side extension)
-    left_side = (left_shoulder + left_hip) / 2 + np.array([-hip_width*0.1, 0])  # Reduced from 0.2
-    right_side = (right_shoulder + right_hip) / 2 + np.array([hip_width*0.1, 0])  # Reduced from 0.2
-    
-    # Create collar points (adjusted for better fit)
-    collar_width = shoulder_width * 0.15  # Reduced from 0.2
-    collar_height = collar_width * 0.3  # Reduced vertical offset
-    left_collar = neck + np.array([-collar_width, -collar_height])
-    right_collar = neck + np.array([collar_width, -collar_height])
-    
-    # Add intermediate points for smoother curves
-    left_mid = (left_shoulder + left_side) / 2
-    right_mid = (right_shoulder + right_side) / 2
-    
-    # Create polygon points with natural curves
-    points = np.array([
-        left_sleeve,
-        left_shoulder,
-        left_mid,
-        left_side,
-        left_hip,
-        right_hip,
-        right_side,
-        right_mid,
-        right_shoulder,
-        right_sleeve,
-        right_collar,
-        neck,
-        left_collar,
-    ], dtype=np.int32)
-    
-    # Fill polygon
-    cv2.fillPoly(mask, [points], 1.0)
-    
-    # Apply smaller Gaussian blur for sharper edges
-    mask = cv2.GaussianBlur(mask, (7, 7), 3)  # Reduced kernel size and sigma
-    
-    # Normalize the mask
+    # Ensure binary mask
     mask = np.clip(mask, 0, 1)
     
     return mask
@@ -171,59 +313,147 @@ def try_on_shirt(person_path, shirt_path, pose_model_path='models/graph_opt.pb',
     try:
         # Initialize models
         pose_detector = PoseDetector(model_path=pose_model_path)
-        seg_model = load_segmentation_model()
+        segmentor = Segmentor()  # Initialize segmentation model
         gmm_model = load_gmm(gmm_model_path)
         
         # Load person image and detect pose
-        person_img = pose_detector.load_image(person_path)
+        person_img = cv2.imread(person_path)
+        person_img = cv2.cvtColor(person_img, cv2.COLOR_BGR2RGB)  # Convert to RGB
         pose_points = pose_detector.detect(person_img)
         
         # Create person representation for GMM
         body_mask = create_body_mask(pose_points, person_img.shape[0], person_img.shape[1])
-        torso_mask = create_torso_mask(pose_points, person_img.shape[0], person_img.shape[1])
+        # Use segmentation model to get torso mask
+        torso_mask = segmentor.segment(person_img, pose_points)
+        if torso_mask is None:
+            # Fallback to pose-based mask if segmentation fails
+            torso_mask = create_torso_mask(pose_points, person_img.shape[0], person_img.shape[1])
+        else:
+            # Normalize mask to 0-1 range
+            torso_mask = torso_mask.astype(np.float32) / 255.0
+            
         face_hair_mask = create_face_hair_mask(pose_points, person_img)
         person_repr = prepare_person_representation(pose_points, torso_mask, face_hair_mask)
         
         # Segment and prepare shirt
-        shirt_mask = segment_shirt(seg_model, shirt_path)
         shirt_img = cv2.imread(shirt_path)
-        # Resize to VITON-HD standard size
-        shirt_img = cv2.resize(shirt_img, (192, 256))
+        shirt_img = cv2.cvtColor(shirt_img, cv2.COLOR_BGR2RGB)  # Convert to RGB
         
-        # Convert shirt to tensor
-        shirt_tensor = torch.FloatTensor(shirt_img.transpose(2, 0, 1)).unsqueeze(0) / 255.0
+        # Remove white background from shirt
+        is_white = np.all(shirt_img > 240, axis=2)
+        shirt_img[is_white] = [0, 0, 0]  # Set white pixels to black
         
-        # Load GMM state dict to check expected shapes
-        state_dict = torch.load(gmm_model_path)
+        # Resize shirt while maintaining aspect ratio
+        target_height = person_img.shape[0]
+        aspect_ratio = shirt_img.shape[1] / shirt_img.shape[0]
+        target_width = int(target_height * aspect_ratio)
+        shirt_img = cv2.resize(shirt_img, (target_width, target_height))
         
-        # Warp shirt using GMM
-        warped_shirt = gmm_model(person_repr, shirt_tensor)
+        # Center the shirt horizontally
+        if target_width < person_img.shape[1]:
+            pad_left = (person_img.shape[1] - target_width) // 2
+            pad_right = person_img.shape[1] - target_width - pad_left
+            shirt_img = cv2.copyMakeBorder(shirt_img, 0, 0, pad_left, pad_right, cv2.BORDER_CONSTANT, value=[0, 0, 0])
+        else:
+            # Crop from center if shirt is too wide
+            start_x = (target_width - person_img.shape[1]) // 2
+            shirt_img = shirt_img[:, start_x:start_x + person_img.shape[1]]
         
-        # Convert warped shirt back to numpy
-        warped_shirt = warped_shirt.squeeze().cpu().numpy().transpose(1, 2, 0)
-        warped_shirt = (warped_shirt * 255).astype(np.uint8)
+        # Create alpha mask for shirt (non-black pixels)
+        shirt_mask = np.any(shirt_img > 10, axis=2).astype(np.float32)
         
-        # Resize back to original size
-        warped_shirt = cv2.resize(warped_shirt, (person_img.shape[1], person_img.shape[0]))
-        
-        # Apply torso mask
-        torso_mask_resized = cv2.resize(torso_mask, (warped_shirt.shape[1], warped_shirt.shape[0]))
-        torso_mask_resized = torso_mask_resized[..., np.newaxis]  # Add channel dimension
-        warped_shirt_masked = warped_shirt * torso_mask_resized
-        
-        # Blend with original image
-        alpha = torso_mask_resized.astype(float)
-        result = warped_shirt_masked * alpha + person_img * (1 - alpha)
-        
-        # Save results
-        cv2.imwrite('output/try_on_result.png', result)
-        print("Result saved to output/try_on_result.png")
-        
-        # Visualize keypoints on result
-        result_with_points = result.copy()
-        pose_detector.draw_landmarks(result_with_points, pose_points)
-        cv2.imwrite('output/try_on_result_with_points.png', result_with_points)
-        print("Result with keypoints saved to output/try_on_result_with_points.png")
+        # Warp shirt using pose points
+        if pose_points is not None:
+            # Get segmentation mask
+            segmentor = Segmentor()
+            final_mask = segmentor.segment(person_img, pose_points)
+            
+            if final_mask is None:
+                return person_img
+                
+            # Find contours of the mask
+            contours, _ = cv2.findContours(final_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            if not contours:
+                return person_img
+                
+            # Get the largest contour
+            target_contour = max(contours, key=cv2.contourArea)
+            
+            # Get shirt contour
+            _, shirt_mask = cv2.threshold(cv2.cvtColor(shirt_img, cv2.COLOR_RGB2GRAY), 
+                                        10, 255, cv2.THRESH_BINARY)
+            shirt_contours, _ = cv2.findContours(shirt_mask, cv2.RETR_EXTERNAL, 
+                                               cv2.CHAIN_APPROX_SIMPLE)
+            if not shirt_contours:
+                return person_img
+                
+            shirt_contour = max(shirt_contours, key=cv2.contourArea)
+            
+            # Sample points along contours
+            num_points = 100
+            target_points = np.array([
+                target_contour[i * len(target_contour) // num_points][0]
+                for i in range(num_points)
+            ], dtype=np.float32)
+            
+            shirt_points = np.array([
+                shirt_contour[i * len(shirt_contour) // num_points][0]
+                for i in range(num_points)
+            ], dtype=np.float32)
+            
+            # Calculate transformation matrix
+            shirt_mean = np.mean(shirt_points, axis=0)
+            target_mean = np.mean(target_points, axis=0)
+            
+            # Center the points
+            shirt_centered = shirt_points - shirt_mean
+            target_centered = target_points - target_mean
+            
+            # Calculate the scale factor
+            shirt_scale = np.sqrt(np.sum(shirt_centered ** 2))
+            target_scale = np.sqrt(np.sum(target_centered ** 2))
+            scale = target_scale / shirt_scale
+            
+            # Calculate rotation matrix
+            covariance = np.dot(shirt_centered.T, target_centered)
+            U, _, Vt = np.linalg.svd(covariance)
+            rotation = np.dot(Vt.T, U.T)
+            
+            # Combine transformations
+            transform = np.zeros((2, 3), dtype=np.float32)
+            transform[:2, :2] = scale * rotation
+            transform[:, 2] = target_mean - np.dot(scale * rotation, shirt_mean)
+            
+            # Apply transformation
+            warped_shirt = cv2.warpAffine(shirt_img, transform, 
+                                        (person_img.shape[1], person_img.shape[0]),
+                                        borderMode=cv2.BORDER_REPLICATE)
+            
+            # Convert mask to float and ensure 3 channels
+            mask_3ch = np.repeat((final_mask/255.0)[..., np.newaxis], 3, axis=2)
+            
+            # Convert images to float for blending
+            warped_shirt_float = warped_shirt.astype(float) / 255.0
+            person_img_float = person_img.astype(float) / 255.0
+            
+            # Apply alpha blending
+            result = warped_shirt_float * mask_3ch + person_img_float * (1.0 - mask_3ch)
+            
+            # Convert back to uint8
+            result = (result * 255).clip(0, 255).astype(np.uint8)
+            
+            # Convert back to BGR for saving
+            result_bgr = cv2.cvtColor(result, cv2.COLOR_RGB2BGR)
+            cv2.imwrite('output/try_on_result.png', result_bgr)
+            print("Result saved to output/try_on_result.png")
+            print("Pose detection saved to output/pose_result.png")
+            print("Segmentation visualization saved to output/segmentation_result.png")
+            
+            # Visualize keypoints on result
+            result_with_points = result.copy()
+            pose_detector.draw_landmarks(result_with_points, pose_points)
+            cv2.imwrite('output/try_on_result_with_points.png', cv2.cvtColor(result_with_points, cv2.COLOR_RGB2BGR))
+            print("Result with keypoints saved to output/try_on_result_with_points.png")
     
     except Exception as e:
         print(f"\nError: {str(e)}")
@@ -236,8 +466,11 @@ def main(person_path, shirt_path):
     person_img = cv2.imread(person_path)
     person_img = cv2.cvtColor(person_img, cv2.COLOR_BGR2RGB)
     
-    # Get pose points
+    # Initialize models
     pose_detector = PoseDetector(model_path='models/graph_opt.pb')
+    segmentor = Segmentor()
+    
+    # Get pose points
     pose_points = pose_detector.detect(person_img)
     
     if not pose_points or None in [pose_points[i] for i in [2, 5, 8, 11]]:
@@ -250,19 +483,31 @@ def main(person_path, shirt_path):
     pose_vis_bgr = cv2.cvtColor(pose_vis, cv2.COLOR_RGB2BGR)
     cv2.imwrite('output/pose_result.png', pose_vis_bgr)
     
-    # Create masks
-    torso_mask = create_torso_mask(pose_points, person_img.shape[0], person_img.shape[1])
+    # Create masks using segmentation model
+    torso_mask = segmentor.segment(person_img, pose_points)
+    if torso_mask is None:
+        # Fallback to pose-based mask if segmentation fails
+        print("Segmentation failed, falling back to pose-based mask")
+        torso_mask = create_torso_mask(pose_points, person_img.shape[0], person_img.shape[1])
+        torso_mask = (torso_mask * 255).astype(np.uint8)
+    
+    # Create body mask and face mask
+    body_mask = create_body_mask(pose_points, person_img.shape[0], person_img.shape[1])
     face_hair_mask = create_face_hair_mask(pose_points, person_img)
     
     # Create segmentation visualization
     seg_vis = person_img.copy().astype(np.float32)
     
     # Create colored overlays
-    torso_mask_3ch = np.stack([torso_mask] * 3, axis=-1)
+    body_mask_3ch = np.stack([body_mask] * 3, axis=-1)
+    torso_mask_3ch = np.stack([torso_mask.astype(np.float32) / 255.0] * 3, axis=-1)
     face_mask_3ch = np.stack([face_hair_mask[:,:,0]] * 3, axis=-1)
     
     # Add colored overlays
-    seg_vis = np.where(torso_mask_3ch > 0, 
+    seg_vis = np.where(body_mask_3ch > 0, 
+                      seg_vis * 0.7 + np.array([0, 0, 255]) * 0.3,  # Blue tint for body
+                      seg_vis)
+    seg_vis = np.where(torso_mask_3ch > 0,
                       seg_vis * 0.7 + np.array([255, 0, 0]) * 0.3,  # Red tint for torso
                       seg_vis)
     seg_vis = np.where(face_mask_3ch > 0,
@@ -270,44 +515,12 @@ def main(person_path, shirt_path):
                       seg_vis)
     
     # Save segmentation visualization
-    cv2.imwrite('output/segmentation_result.png', cv2.cvtColor(seg_vis.astype(np.uint8), cv2.COLOR_RGB2BGR))
+    seg_vis = np.clip(seg_vis, 0, 255).astype(np.uint8)
+    seg_vis = cv2.cvtColor(seg_vis, cv2.COLOR_RGB2BGR)
+    cv2.imwrite('output/segmentation_result.png', seg_vis)
     
-    # Prepare person representation
-    person_repr = prepare_person_representation(pose_points, torso_mask, face_hair_mask)
-    
-    # Load and prepare shirt
-    shirt_img = cv2.imread(shirt_path)
-    shirt_img = cv2.cvtColor(shirt_img, cv2.COLOR_BGR2RGB)
-    shirt_img = cv2.resize(shirt_img, (192, 256))
-    shirt_tensor = torch.FloatTensor(shirt_img).permute(2, 0, 1).unsqueeze(0) / 255.0
-    
-    # Load GMM model
-    gmm_model = load_gmm('models/gmm_final.pth')
-    
-    # Run GMM model
-    with torch.no_grad():
-        theta = gmm_model(person_repr, shirt_tensor)
-        warped_shirt = tps_transform(theta, shirt_tensor)
-        
-        # Convert warped shirt to numpy
-        warped_shirt_np = warped_shirt.squeeze().cpu().numpy()
-        warped_shirt_np = warped_shirt_np.transpose(1, 2, 0)
-        warped_shirt_np = (warped_shirt_np * 255).astype(np.uint8)
-        
-        # Resize warped shirt to original size
-        warped_shirt_full = cv2.resize(warped_shirt_np, (person_img.shape[1], person_img.shape[0]))
-        
-        # Create 3-channel torso mask and blend
-        torso_mask_3ch = np.stack([torso_mask] * 3, axis=-1)
-        warped_shirt_masked = warped_shirt_full * torso_mask_3ch
-        result = warped_shirt_masked + person_img * (1 - torso_mask_3ch)
-        
-        # Save result
-        result_bgr = cv2.cvtColor(result.astype(np.uint8), cv2.COLOR_RGB2BGR)
-        cv2.imwrite('output/try_on_result.png', result_bgr)
-        print("Result saved to output/try_on_result.png")
-        print("Pose detection saved to output/pose_result.png")
-        print("Segmentation visualization saved to output/segmentation_result.png")
+    # Try on the shirt
+    try_on_shirt(person_path, shirt_path)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Virtual Try-On Demo')
