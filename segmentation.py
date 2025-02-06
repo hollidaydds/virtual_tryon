@@ -16,162 +16,116 @@ class Segmentor:
         logger.info(f"Using device: {self.device}")
     
     def segment(self, img_rgb, pose_points):
-        """Segment the shirt region using color and pose information."""
+        if pose_points is None:
+            return None
+            
         h, w = img_rgb.shape[:2]
+        mask = np.zeros((h, w), dtype=np.uint8)
         
-        # Convert to HSV for better color segmentation
-        img_hsv = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2HSV)
+        # Get key pose points
+        nose = pose_points[0]
+        neck = pose_points[1]
+        l_shoulder = pose_points[2]
+        r_shoulder = pose_points[5]
+        l_hip = pose_points[8]
+        r_hip = pose_points[11]
         
-        # Create torso region from pose points
-        if pose_points is not None:
-            # Get key points
-            neck = pose_points[1]
-            shoulders = [pose_points[2], pose_points[5]]  # Left and right shoulder
-            hips = [pose_points[8], pose_points[11]]      # Left and right hip
+        if neck is None or l_shoulder is None or r_shoulder is None or l_hip is None or r_hip is None:
+            return None
             
-            # Calculate dimensions
-            shoulder_width = abs(shoulders[1][0] - shoulders[0][0])
-            hip_width = abs(hips[1][0] - hips[0][0])
-            torso_height = abs(hips[0][1] - neck[1])
-            
-            # Create base mask from pose points
-            mask = np.zeros((h, w), dtype=np.uint8)
-            
-            # Calculate control points for natural curve
-            center_x = (shoulders[0][0] + shoulders[1][0]) / 2
-            
-            # Create natural shoulder line with slight upward curve
-            shoulder_curve = int(shoulder_width * 0.1)
-            shoulder_points = []
-            for t in np.linspace(0, 1, 10):
-                x = shoulders[0][0] + t * (shoulders[1][0] - shoulders[0][0])
-                y = neck[1] - shoulder_curve * np.sin(np.pi * t)
-                shoulder_points.append([int(x), int(y)])
-            
-            # Create side curves
-            left_points = []
-            right_points = []
-            for t in np.linspace(0, 1, 10):
-                # Cubic bezier curve for natural waist
+        # Calculate key measurements
+        shoulder_width = np.linalg.norm(np.array(r_shoulder) - np.array(l_shoulder))
+        hip_width = np.linalg.norm(np.array(r_hip) - np.array(l_hip))
+        torso_height = np.linalg.norm(np.array(l_hip) - np.array(l_shoulder))
+        
+        # Add padding
+        padding_x = int(shoulder_width * 0.2)
+        padding_y = int(torso_height * 0.1)
+        
+        def create_bezier_curve(p0, p1, p2, p3, num_points=20):
+            points = []
+            for t in np.linspace(0, 1, num_points):
                 t2 = t * t
                 t3 = t2 * t
-                bezier = lambda p0, p1, p2, p3: (
-                    p0 * (1-t3) + 3*p1*t*(1-t2) + 3*p2*t2*(1-t) + p3*t3
-                )
-                
-                # Control points for waist curve
-                left_ctrl1 = shoulders[0][0] - shoulder_width * 0.1
-                right_ctrl1 = shoulders[1][0] + shoulder_width * 0.1
-                
-                # Left curve
-                x_left = bezier(shoulders[0][0], left_ctrl1, 
-                              hips[0][0] - hip_width * 0.1, hips[0][0])
-                y_left = neck[1] + t * torso_height
-                left_points.append([int(x_left), int(y_left)])
-                
-                # Right curve
-                x_right = bezier(shoulders[1][0], right_ctrl1,
-                               hips[1][0] + hip_width * 0.1, hips[1][0])
-                y_right = neck[1] + t * torso_height
-                right_points.append([int(x_right), int(y_right)])
-            
-            # Combine all points
-            points = np.array(shoulder_points + right_points + 
-                            [[int(hips[1][0]), int(hips[1][1])]] +
-                            [[int(hips[0][0]), int(hips[0][1])]] +
-                            left_points[::-1], dtype=np.int32)
-            
-            # Fill the polygon
-            cv2.fillPoly(mask, [points], 255)
-            
-            # Add neck region
-            neck_radius = int(shoulder_width * 0.15)
-            cv2.circle(mask, (int(neck[0]), int(neck[1])), neck_radius, 255, -1)
-            
-            # Exclude face
-            if pose_points[0][0] > 0 and pose_points[0][1] > 0:  # If nose is detected
-                face_radius = int(shoulder_width * 0.4)
-                cv2.circle(mask, (int(pose_points[0][0]), int(pose_points[0][1])),
-                          face_radius, 0, -1)
-            
-            # Smooth edges
-            mask = cv2.GaussianBlur(mask, (15, 15), 0)
-            
-            # Create color mask using the pose mask as a guide
-            color_mask = np.zeros((h, w), dtype=np.uint8)
-            
-            # Sample colors from the center of the torso
-            center_y = int((neck[1] + hips[0][1]) / 2)
-            center_x = int((shoulders[0][0] + shoulders[1][0]) / 2)
-            sample_region = img_hsv[center_y-20:center_y+20, center_x-20:center_x+20]
-            
-            if sample_region.size > 0:
-                # Calculate average color in sample region
-                avg_hue = np.median(sample_region[:,:,0])
-                avg_sat = np.median(sample_region[:,:,1])
-                avg_val = np.median(sample_region[:,:,2])
-                
-                # Create color thresholds with wider ranges
-                hue_range = 30  
-                sat_range = 70  
-                val_range = 70  
-                
-                # Create color mask with adaptive thresholds
-                lower_bound = np.array([
-                    max(0, avg_hue - hue_range),
-                    max(0, avg_sat - sat_range),
-                    max(0, avg_val - val_range)
-                ])
-                upper_bound = np.array([
-                    min(180, avg_hue + hue_range),
-                    min(255, avg_sat + sat_range),
-                    min(255, avg_val + val_range)
-                ])
-                
-                # Create initial color mask
-                color_mask = cv2.inRange(img_hsv, lower_bound, upper_bound)
-                
-                # Enhance color mask with additional processing
-                kernel = np.ones((5,5), np.uint8)
-                color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_CLOSE, kernel)
-                color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_OPEN, kernel)
-                
-                # Combine pose and color masks with weighted blending
-                pose_weight = 0.7  
-                color_weight = 0.3
-                
-                pose_mask_float = mask.astype(float) / 255
-                color_mask_float = color_mask.astype(float) / 255
-                
-                # Create distance-based weight map
-                y_coords, x_coords = np.ogrid[:h, :w]
-                center_y = (neck[1] + hips[0][1]) // 2
-                center_x = (shoulders[0][0] + shoulders[1][0]) // 2
-                
-                # Calculate normalized distances
-                dist_y = np.abs(y_coords - center_y) / torso_height
-                dist_x = np.abs(x_coords - center_x) / shoulder_width
-                dist_map = np.sqrt(dist_x**2 + dist_y**2)
-                
-                # Create smooth weight transition
-                weight_map = np.clip(1 - dist_map, 0, 1)
-                
-                # Combine masks with weighted blending
-                combined_mask = (pose_mask_float * pose_weight * weight_map +
-                               color_mask_float * color_weight * (1 - weight_map))
-                
-                # Threshold and clean up
-                combined_mask = (combined_mask > 0.2).astype(np.uint8) * 255  
-                
-                # Final cleanup and smoothing
-                kernel_size = max(5, int(shoulder_width * 0.03))  
-                kernel = np.ones((kernel_size, kernel_size), np.uint8)
-                combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_CLOSE, kernel)
-                combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_DILATE, kernel)  
-                combined_mask = cv2.GaussianBlur(combined_mask, (kernel_size, kernel_size), 0)
-                
-                return combined_mask
-            
+                x = p0[0] * (1-t3) + 3*p1[0]*t*(1-t2) + 3*p2[0]*t2*(1-t) + p3[0]*t3
+                y = p0[1] * (1-t3) + 3*p1[1]*t*(1-t2) + 3*p2[1]*t2*(1-t) + p3[1]*t3
+                points.append([int(x), int(y)])
+            return points
+        
+        # Create natural curves for the sides of the torso
+        # Left side control points
+        l_ctrl1 = [l_shoulder[0] - padding_x, l_shoulder[1] + torso_height * 0.2]
+        l_ctrl2 = [l_hip[0] - padding_x, l_hip[1] - torso_height * 0.2]
+        
+        # Right side control points
+        r_ctrl1 = [r_shoulder[0] + padding_x, r_shoulder[1] + torso_height * 0.2]
+        r_ctrl2 = [r_hip[0] + padding_x, r_hip[1] - torso_height * 0.2]
+        
+        # Generate curve points
+        left_curve = create_bezier_curve(
+            [l_shoulder[0] - padding_x, l_shoulder[1]],
+            l_ctrl1,
+            l_ctrl2,
+            [l_hip[0] - padding_x, l_hip[1] + padding_y]
+        )
+        
+        right_curve = create_bezier_curve(
+            [r_shoulder[0] + padding_x, r_shoulder[1]],
+            r_ctrl1,
+            r_ctrl2,
+            [r_hip[0] + padding_x, r_hip[1] + padding_y]
+        )
+        
+        # Create shoulder line with slight curve
+        shoulder_points = []
+        shoulder_height = min(l_shoulder[1], r_shoulder[1]) - padding_y
+        for t in np.linspace(0, 1, 20):
+            x = l_shoulder[0] - padding_x + t * (r_shoulder[0] - l_shoulder[0] + 2*padding_x)
+            y = shoulder_height - np.sin(np.pi * t) * padding_y
+            shoulder_points.append([int(x), int(y)])
+        
+        # Create bottom curve
+        bottom_points = []
+        for t in np.linspace(0, 1, 20):
+            x = l_hip[0] - padding_x + t * (r_hip[0] - l_hip[0] + 2*padding_x)
+            y = max(l_hip[1], r_hip[1]) + padding_y + np.sin(np.pi * t) * padding_y
+            bottom_points.append([int(x), int(y)])
+        
+        # Combine all points
+        all_points = np.array(
+            shoulder_points + 
+            right_curve + 
+            bottom_points[::-1] + 
+            left_curve[::-1], 
+            dtype=np.int32
+        )
+        
+        # Fill the main torso
+        cv2.fillPoly(mask, [all_points], 255)
+        
+        # Add neck region
+        neck_top = [neck[0], neck[1] - int(shoulder_width * 0.3)]
+        neck_width = int(shoulder_width * 0.3)
+        neck_points = np.array([
+            [neck_top[0] - neck_width, neck_top[1]],
+            [neck_top[0] + neck_width, neck_top[1]],
+            [r_shoulder[0], r_shoulder[1]],
+            [l_shoulder[0], l_shoulder[1]]
+        ], dtype=np.int32)
+        cv2.fillPoly(mask, [neck_points], 255)
+        
+        # Smooth the edges
+        kernel_size = max(5, int(shoulder_width * 0.05))
+        if kernel_size % 2 == 0:
+            kernel_size += 1
+        mask = cv2.GaussianBlur(mask, (kernel_size, kernel_size), 0)
+        
+        # Exclude face region if nose is detected
+        if nose[0] > 0 and nose[1] > 0:
+            face_radius = int(shoulder_width * 0.4)
+            cv2.circle(mask, (int(nose[0]), int(nose[1])), 
+                      face_radius, 0, -1)
+        
         return mask
 
     def segment_old(self, image, pose_points=None):
